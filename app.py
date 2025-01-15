@@ -7,6 +7,7 @@ from svg_analyzer import SVGAnalyzer
 import pandas as pd
 import uuid
 import streamlit.components.v1 as components
+from ml_model import SVGTypingModel
 
 # Set page config
 st.set_page_config(
@@ -19,6 +20,7 @@ st.set_page_config(
 DEFAULT_IMAGES_DIR = "images"
 TYPING_CONFIG_FILE = "typing_config.json"
 TYPING_RESULTS_FILE = "typed_images.json"
+MODEL_PATH = "typing_model"
 
 class TypingStep:
     def __init__(self, id, name, options, order=None):
@@ -133,6 +135,56 @@ if 'current_results' not in st.session_state:
 def show_typing_config():
     """Show and edit typing configuration"""
     st.header("Typering Configuratie")
+    
+    # Add ML training section
+    st.subheader("Machine Learning Model")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("Train Model"):
+            typed_files = load_typing_results()
+            if len(typed_files) < 5:
+                st.error("Te weinig getypeerde bestanden om het model te trainen. Typeer eerst meer bestanden.")
+            else:
+                with st.spinner("Model wordt getraind..."):
+                    # Initialize model
+                    model = SVGTypingModel(st.session_state.typing_steps)
+                    
+                    # Prepare data
+                    file_paths = {os.path.join(DEFAULT_IMAGES_DIR, filename): data 
+                                for filename, data in typed_files.items()}
+                    X, Y = model.prepare_data(file_paths)
+                    
+                    # Train model
+                    history = model.train(X, Y)
+                    
+                    # Save model
+                    model.save_model(MODEL_PATH)
+                    
+                    st.success("Model succesvol getraind!")
+                    
+                    # Show training metrics
+                    st.write("Training resultaten:")
+                    for i, step in enumerate(sorted(st.session_state.typing_steps.values(), key=lambda x: x.order)):
+                        accuracy = history.history[f'output_{step.id}_accuracy'][-1]
+                        st.write(f"{step.name}: {accuracy:.2%} nauwkeurigheid")
+    
+    with col2:
+        if model_exists():
+            if st.button("Verwijder Model"):
+                # Remove both possible model files
+                for ext in ['.keras', '.h5']:
+                    model_file = f"{MODEL_PATH}{ext}"
+                    if os.path.exists(model_file):
+                        os.remove(model_file)
+                if 'ml_model' in st.session_state:
+                    del st.session_state.ml_model
+                st.success("Model verwijderd")
+                st.rerun()
+        else:
+            st.info("Geen getraind model aanwezig")
+    
+    st.markdown("---")
     
     # Add new step
     new_step_name = st.text_input("Nieuwe stap toevoegen")
@@ -317,6 +369,23 @@ def show_next_untyped_file():
     current_step = st.session_state.typing_steps[st.session_state.current_step]
     st.subheader(current_step.name)
     
+    # Show ML prediction if model exists
+    if model_exists():
+        try:
+            with open(filepath, 'r') as f:
+                svg_content = f.read()
+            
+            if 'ml_model' not in st.session_state:
+                model = SVGTypingModel(st.session_state.typing_steps)
+                model.load_model(get_model_path())
+                st.session_state.ml_model = model
+            
+            predictions = st.session_state.ml_model.predict(svg_content)
+            if current_step.id in predictions:
+                st.info(f"🤖 Suggestie: {predictions[current_step.id]}")
+        except Exception as e:
+            st.error(f"Fout bij het maken van voorspelling: {e}")
+    
     # Create columns for options
     ordered_options = current_step.get_ordered_options()
     cols = st.columns(len(ordered_options))
@@ -447,6 +516,16 @@ def show_typed_files():
                     with open(TYPING_RESULTS_FILE, 'w') as f:
                         json.dump(typed, f, indent=4)
                     st.rerun()
+
+def model_exists():
+    """Check if a trained model exists"""
+    return os.path.exists(f"{MODEL_PATH}.keras") or os.path.exists(f"{MODEL_PATH}.h5")
+
+def get_model_path():
+    """Get the path of the existing model file"""
+    if os.path.exists(f"{MODEL_PATH}.keras"):
+        return f"{MODEL_PATH}.keras"
+    return f"{MODEL_PATH}.h5"
 
 def main():
     st.title("SVG Typering 🏷️")

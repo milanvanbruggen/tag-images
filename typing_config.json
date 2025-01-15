@@ -31,19 +31,19 @@
         "name": "Uitsparing",
         "options": [
             {
-                "value": "Niet van toepassing",
+                "value": "\u274c Niet van toepassing",
                 "order": 0
             },
             {
-                "value": "Vierhoek",
+                "value": "\ud83d\udfea Vierhoek",
                 "order": 1
             },
             {
-                "value": "Rond",
+                "value": "\ud83d\udfe0 Rond",
                 "order": 2
             },
             {
-                "value": "Driehoek",
+                "value": "\ud83d\udcd0 Driehoek",
                 "order": 3
             },
             {
