@@ -186,9 +186,58 @@ def show_next_uncategorized_file(auto_categorize, confidence_threshold):
         st.info(f"Geen ongecategoriseerde bestanden gevonden in {DEFAULT_IMAGES_DIR}")
         st.write(f"Plaats SVG bestanden in de '{DEFAULT_IMAGES_DIR}' map om ze te categoriseren")
         return
+
+    # Initialize current index in session state if not exists
+    if 'current_file_index' not in st.session_state:
+        st.session_state.current_file_index = 0
     
-    current_file = uncategorized[0]  # Always show the first uncategorized file
-    filepath = os.path.join(DEFAULT_IMAGES_DIR, current_file)
+    # Navigation and file info in one container with gray background
+    nav_container = st.container()
+    with nav_container:
+        st.markdown("""
+            <style>
+            [data-testid="stVerticalBlock"] > div:has(button:contains("⬅️")) {
+                background-color: #f0f2f6;
+                padding: 1rem;
+                border-radius: 0.5rem;
+                margin-bottom: 1rem;
+            }
+            [data-testid="stVerticalBlock"] > div:has(button:contains("⬅️")) > div {
+                margin-bottom: 0;
+            }
+            [data-testid="stVerticalBlock"] > div:has(button:contains("⬅️")) [data-testid="stCaption"] {
+                margin-top: 0.5rem;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+        
+        # Navigation row
+        nav_col1, nav_col2 = st.columns([8, 2])
+        
+        # Left side: navigation buttons
+        with nav_col1:
+            nav_buttons_col1, nav_buttons_col2, nav_buttons_col3 = st.columns([1, 1, 18])
+            with nav_buttons_col1:
+                if st.button("⬅️", disabled=st.session_state.current_file_index == 0):
+                    st.session_state.current_file_index = max(0, st.session_state.current_file_index - 1)
+                    if 'current_analysis' in st.session_state:
+                        del st.session_state.current_analysis
+                    st.rerun()
+            with nav_buttons_col2:
+                if st.button("➡️", disabled=st.session_state.current_file_index == len(uncategorized) - 1):
+                    st.session_state.current_file_index = min(len(uncategorized) - 1, st.session_state.current_file_index + 1)
+                    if 'current_analysis' in st.session_state:
+                        del st.session_state.current_analysis
+                    st.rerun()
+        
+        # Right side: file counter
+        with nav_col2:
+            st.write(f"Afbeelding {st.session_state.current_file_index + 1} van {len(uncategorized)}")
+        
+        # Display current file name below navigation
+        current_file = uncategorized[st.session_state.current_file_index]
+        filepath = os.path.join(DEFAULT_IMAGES_DIR, current_file)
+        st.caption(f"Categoriseren: {current_file}")
     
     # Add CSS for sticky buttons and image size
     st.markdown("""
@@ -198,16 +247,10 @@ def show_next_uncategorized_file(auto_categorize, confidence_threshold):
             width: auto !important;
             display: block !important;
             margin: auto !important;
+            margin-bottom: 0 !important;
         }
-        .category-buttons {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: white;
-            padding: 1rem;
-            border-top: 1px solid #ddd;
-            z-index: 1000;
+        [data-testid="caption"] {
+            margin-top: 0.2rem !important;
         }
         .main-content {
             margin-bottom: 120px;  /* Space for fixed buttons */
@@ -223,9 +266,6 @@ def show_next_uncategorized_file(auto_categorize, confidence_threshold):
     # Main content div
     st.markdown('<div class="main-content">', unsafe_allow_html=True)
     
-    # Display current file
-    st.subheader(f"Categoriseren: {current_file}")
-    
     # Create two columns for image and analysis
     image_col, analysis_col = st.columns([2, 1])
     
@@ -238,22 +278,48 @@ def show_next_uncategorized_file(auto_categorize, confidence_threshold):
     # Show analysis in right column
     with analysis_col:
         if auto_categorize:
-            scores = st.session_state.analyzer.analyze_svg(svg_content)
-            suggested_category, confidence = st.session_state.analyzer.suggest_category(svg_content)
+            # Get or calculate analysis results
+            if 'current_analysis' not in st.session_state:
+                scores = st.session_state.analyzer.analyze_svg(svg_content)
+                suggested_category, confidence = st.session_state.analyzer.suggest_category(svg_content)
+                st.session_state.current_analysis = {
+                    'scores': scores,
+                    'suggested_category': suggested_category,
+                    'confidence': confidence
+                }
+            else:
+                scores = st.session_state.current_analysis['scores']
+                suggested_category = st.session_state.current_analysis['suggested_category']
+                confidence = st.session_state.current_analysis['confidence']
             
-            st.write("### Analyse Resultaten")
-            st.write("Voorgestelde categorie:", suggested_category)
-            st.write(f"Betrouwbaarheid: {confidence:.2%}")
+            st.markdown("### Analyse Resultaten")
             
-            st.write("Scores per categorie:")
-            for cat_name, score in scores.items():
-                st.write(f"- {cat_name}: {score:.2%}")
+            # Create a container with custom styling for the analysis results
+            analysis_container = st.container()
+            with analysis_container:
+                st.markdown("""
+                    <style>
+                    [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
+                        background-color: #f0f2f6;
+                        padding: 1rem;
+                        border-radius: 0.5rem;
+                    }
+                    </style>
+                """, unsafe_allow_html=True)
+                
+                # Suggested category and confidence
+                st.info(f"**Voorgestelde categorie:** {suggested_category}")
+                st.progress(confidence, text=f"Betrouwbaarheid: {confidence:.1%}")
+                
+                # Show detailed scores in an expander
+                with st.expander("Bekijk alle scores", expanded=True):
+                    for cat_name, score in sorted(scores.items(), key=lambda x: x[1], reverse=True):
+                        st.progress(score, text=f"{cat_name}: {score:.1%}")
     
     st.markdown('</div>', unsafe_allow_html=True)
     
     # Category selection buttons with shortcuts in fixed container
     st.markdown('<div class="category-buttons">', unsafe_allow_html=True)
-    st.write("### Kies een Categorie (1-9)")
     
     # Calculate button width based on number of categories
     num_categories = len(st.session_state.categories)
@@ -265,7 +331,6 @@ def show_next_uncategorized_file(auto_categorize, confidence_threshold):
         with cols[i]:
             # Add shortcut number (1-9) if within first 9 categories
             shortcut = f"[{i+1}] " if i < 9 else ""
-            # Add a specific class to categorization buttons
             if st.button(f"{shortcut}{category.name}", key=f"btn_{cat_id}_{current_file}", use_container_width=True):
                 scores = st.session_state.analyzer.analyze_svg(svg_content) if auto_categorize else None
                 save_categorization(current_file, cat_id, scores)
@@ -279,26 +344,26 @@ def show_next_uncategorized_file(auto_categorize, confidence_threshold):
         """
         <script>
         function handleKeyPress(event) {
-            console.log('Key pressed:', event.key);
-            
+            // Handle number keys for categories
             if (event.key >= '1' && event.key <= '9') {
-                // Find all buttons in the document
                 const allButtons = Array.from(window.parent.document.querySelectorAll('.stButton > button'));
-                console.log('All buttons found:', allButtons.length);
-                
-                // Filter buttons to only those with category names (containing '[X]')
                 const categoryButtons = allButtons.filter(btn => btn.textContent.includes('['));
-                console.log('Category buttons found:', categoryButtons.length);
-                categoryButtons.forEach((btn, idx) => {
-                    console.log(`Button ${idx}:`, btn.textContent);
-                });
-                
                 const index = parseInt(event.key) - 1;
-                console.log('Trying to click button at index:', index);
                 
                 if (index < categoryButtons.length) {
-                    console.log('Clicking button:', categoryButtons[index].textContent);
                     categoryButtons[index].click();
+                }
+            }
+            // Handle arrow keys for navigation
+            else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                const allButtons = Array.from(window.parent.document.querySelectorAll('.stButton > button'));
+                const navButton = allButtons.find(btn => 
+                    (event.key === 'ArrowLeft' && btn.textContent === '⬅️') ||
+                    (event.key === 'ArrowRight' && btn.textContent === '➡️')
+                );
+                
+                if (navButton && !navButton.disabled) {
+                    navButton.click();
                 }
             }
         }
@@ -307,7 +372,6 @@ def show_next_uncategorized_file(auto_categorize, confidence_threshold):
         window.parent.document.removeEventListener('keydown', handleKeyPress);
         // Add the event listener
         window.parent.document.addEventListener('keydown', handleKeyPress);
-        console.log('Keyboard shortcut handler installed');
         </script>
         """,
         height=0,
@@ -413,45 +477,6 @@ def main():
     with tab1:
         st.header("Categoriseer Afbeeldingen")
         show_next_uncategorized_file(auto_categorize, confidence_threshold)
-        
-        # Add keyboard shortcuts using Streamlit components
-        components.html(
-            """
-            <script>
-            function handleKeyPress(event) {
-                console.log('Key pressed:', event.key);
-                
-                if (event.key >= '1' && event.key <= '9') {
-                    // Find all buttons in the document
-                    const allButtons = Array.from(window.parent.document.querySelectorAll('.stButton > button'));
-                    console.log('All buttons found:', allButtons.length);
-                    
-                    // Filter buttons to only those with category names (containing '[X]')
-                    const categoryButtons = allButtons.filter(btn => btn.textContent.includes('['));
-                    console.log('Category buttons found:', categoryButtons.length);
-                    categoryButtons.forEach((btn, idx) => {
-                        console.log(`Button ${idx}:`, btn.textContent);
-                    });
-                    
-                    const index = parseInt(event.key) - 1;
-                    console.log('Trying to click button at index:', index);
-                    
-                    if (index < categoryButtons.length) {
-                        console.log('Clicking button:', categoryButtons[index].textContent);
-                        categoryButtons[index].click();
-                    }
-                }
-            }
-            
-            // Remove any existing event listener
-            window.parent.document.removeEventListener('keydown', handleKeyPress);
-            // Add the event listener
-            window.parent.document.addEventListener('keydown', handleKeyPress);
-            console.log('Keyboard shortcut handler installed');
-            </script>
-            """,
-            height=0,
-        )
     
     with tab2:
         st.header("Upload Nieuwe Bestanden")

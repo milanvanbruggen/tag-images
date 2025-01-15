@@ -1,41 +1,37 @@
 [
     {
         "id": "09211990-050a-45cc-81d5-ff8aac956e03",
-        "name": "\u2b1b Square",
-        "keywords": []
+        "name": "⬛ Square",
+        "keywords": ["vierkant", "rechthoek", "blok", "box", "square", "rectangle"]
     },
     {
         "id": "d8f9b4ea-7067-4420-8c8f-a68c388930d9",
-        "name": "\u2764\ufe0f Heart",
-        "keywords": []
+        "name": "❤️ Heart",
+        "keywords": ["hart", "love", "liefde", "heart"]
     },
     {
         "id": "93298baf-1038-4f75-abad-842bcfba25a4",
-        "name": "\u27a1\ufe0f Arrow",
-        "keywords": []
+        "name": "➡️ Arrow",
+        "keywords": ["pijl", "richting", "arrow", "pointer", "direction"]
     },
     {
         "id": "e129487e-4890-4ac9-9bb1-990d12be937b",
-        "name": "\u25e5 Triangle",
-        "keywords": [
-            "driehoek"
-        ]
+        "name": "◥ Triangle",
+        "keywords": ["driehoek", "triangle", "pyramid", "delta"]
     },
     {
         "id": "329d2dbc-639b-4f1f-9a21-28ef22f52baf",
-        "name": "\u2747\ufe0f Complex Shape",
-        "keywords": []
+        "name": "❇️ Complex Shape",
+        "keywords": ["complex", "samengesteld", "mixed", "combined", "multiple"]
     },
     {
         "id": "f8c13e87-3080-406e-af72-35ffe5bfa569",
-        "name": "\u26ab Round",
-        "keywords": []
+        "name": "⚫ Round",
+        "keywords": ["rond", "cirkel", "circle", "oval", "ellipse"]
     },
     {
         "id": "331665e6-086a-4b14-9a92-e8b4eb3bf45f",
-        "name": "\u2122\ufe0f Text",
-        "keywords": [
-            "tekst"
-        ]
+        "name": "™️ Text",
+        "keywords": ["tekst", "text", "font", "letter", "woord"]
     }
 ]
