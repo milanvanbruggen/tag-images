@@ -1,0 +1,41 @@
+[
+    {
+        "id": "09211990-050a-45cc-81d5-ff8aac956e03",
+        "name": "\u2b1b Square",
+        "keywords": []
+    },
+    {
+        "id": "d8f9b4ea-7067-4420-8c8f-a68c388930d9",
+        "name": "\u2764\ufe0f Heart",
+        "keywords": []
+    },
+    {
+        "id": "93298baf-1038-4f75-abad-842bcfba25a4",
+        "name": "\u27a1\ufe0f Arrow",
+        "keywords": []
+    },
+    {
+        "id": "e129487e-4890-4ac9-9bb1-990d12be937b",
+        "name": "\u25e5 Triangle",
+        "keywords": [
+            "driehoek"
+        ]
+    },
+    {
+        "id": "329d2dbc-639b-4f1f-9a21-28ef22f52baf",
+        "name": "\u2747\ufe0f Complex Shape",
+        "keywords": []
+    },
+    {
+        "id": "f8c13e87-3080-406e-af72-35ffe5bfa569",
+        "name": "\u26ab Round",
+        "keywords": []
+    },
+    {
+        "id": "331665e6-086a-4b14-9a92-e8b4eb3bf45f",
+        "name": "\u2122\ufe0f Text",
+        "keywords": [
+            "tekst"
+        ]
+    }
+]

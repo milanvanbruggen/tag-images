@@ -4,6 +4,9 @@ from pathlib import Path
 import shutil
 import json
 from svg_analyzer import SVGAnalyzer
+import pandas as pd
+import uuid
+import streamlit.components.v1 as components
 
 # Set page config
 st.set_page_config(
@@ -12,40 +15,343 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize session state for categories if not exists
+# Constants for file paths
+DEFAULT_IMAGES_DIR = "images"
+CATEGORIES_FILE = "categories.json"
+CATEGORIZATION_FILE = "categorized_images.json"
+
+class Category:
+    def __init__(self, id, name, keywords=None):
+        self.id = id
+        self.name = name
+        self.keywords = keywords or []
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'keywords': self.keywords
+        }
+
+    @staticmethod
+    def from_dict(data):
+        return Category(data['id'], data['name'], data.get('keywords', []))
+
+def load_categories():
+    """Load categories from JSON file"""
+    if os.path.exists(CATEGORIES_FILE):
+        with open(CATEGORIES_FILE, 'r') as f:
+            categories_data = json.load(f)
+            return {cat['id']: Category.from_dict(cat) for cat in categories_data}
+    
+    # Default categories with generated IDs
+    default_categories = {
+        str(uuid.uuid4()): Category(str(uuid.uuid4()), 'icons', ['icon', 'symbol', 'glyph']),
+        str(uuid.uuid4()): Category(str(uuid.uuid4()), 'logos', ['logo', 'brand', 'company']),
+        str(uuid.uuid4()): Category(str(uuid.uuid4()), 'illustrations', ['illustration', 'scene', 'drawing'])
+    }
+    save_categories(default_categories)
+    return default_categories
+
+def save_categories(categories):
+    """Save categories to JSON file"""
+    categories_data = [cat.to_dict() for cat in categories.values()]
+    with open(CATEGORIES_FILE, 'w') as f:
+        json.dump(categories_data, f, indent=4)
+
+def load_categorization():
+    """Load categorization data from JSON file"""
+    if os.path.exists(CATEGORIZATION_FILE):
+        try:
+            with open(CATEGORIZATION_FILE, 'r') as f:
+                content = f.read().strip()
+                if content:  # Only try to parse if file is not empty
+                    return json.loads(content)
+        except json.JSONDecodeError:
+            pass  # If there's an error reading the JSON, return empty dict
+    return {}
+
+def save_categorization(filename, category_id, scores=None):
+    """Save the categorization to a JSON file"""
+    data = load_categorization()
+    
+    data[filename] = {
+        'category_id': category_id,
+        'analysis_scores': scores,
+        'timestamp': str(pd.Timestamp.now())
+    }
+    
+    with open(CATEGORIZATION_FILE, 'w') as f:
+        json.dump(data, f, indent=4)
+
+def get_uncategorized_files():
+    """Get list of uncategorized SVG files from default directory"""
+    if not os.path.exists(DEFAULT_IMAGES_DIR):
+        os.makedirs(DEFAULT_IMAGES_DIR)
+    
+    categorized = load_categorization()
+    all_files = [f for f in os.listdir(DEFAULT_IMAGES_DIR) if f.lower().endswith('.svg')]
+    return [f for f in all_files if f not in categorized]
+
+def read_svg_file(filepath):
+    """Read SVG file content"""
+    with open(filepath, 'rb') as f:
+        return f.read()
+
+def rename_category_directory(old_name, new_name):
+    """Rename category directory if it exists"""
+    if os.path.exists(old_name):
+        os.rename(old_name, new_name)
+
+# Initialize session state
 if 'categories' not in st.session_state:
-    st.session_state.categories = set(['icons', 'logos', 'illustrations'])  # Default categories
+    st.session_state.categories = load_categories()
 if 'current_file_index' not in st.session_state:
     st.session_state.current_file_index = 0
 if 'processed_files' not in st.session_state:
     st.session_state.processed_files = set()
 if 'analyzer' not in st.session_state:
     st.session_state.analyzer = SVGAnalyzer()
+if 'using_uploaded_files' not in st.session_state:
+    st.session_state.using_uploaded_files = False
+if 'editing_category' not in st.session_state:
+    st.session_state.editing_category = None
 
-def save_categorization(filename, category, scores=None):
-    """Save the categorization to a JSON file"""
-    data = {}
-    if os.path.exists('categorization.json'):
-        with open('categorization.json', 'r') as f:
-            data = json.load(f)
+def remove_categorization(filename):
+    """Remove categorization for a file"""
+    data = load_categorization()
+    if filename in data:
+        del data[filename]
+        with open(CATEGORIZATION_FILE, 'w') as f:
+            json.dump(data, f, indent=4)
+
+def show_categorized_files():
+    """Show overview of categorized files grouped by category"""
+    categorization = load_categorization()
+    if not categorization:
+        st.info("Nog geen bestanden gecategoriseerd")
+        return
     
-    data[filename] = {
-        'category': category,
-        'analysis_scores': scores
-    }
+    # Group files by category
+    files_by_category = {}
+    for filename, data in categorization.items():
+        category_id = data['category_id']
+        if category_id in st.session_state.categories:
+            category_name = st.session_state.categories[category_id].name
+            if category_name not in files_by_category:
+                files_by_category[category_name] = []
+            files_by_category[category_name].append((filename, data))
     
-    with open('categorization.json', 'w') as f:
-        json.dump(data, f, indent=4)
+    # Display files by category
+    for category_name, files in sorted(files_by_category.items()):
+        with st.expander(f"{category_name} ({len(files)} bestanden)"):
+            for filename, data in sorted(files, key=lambda x: x[0]):
+                col1, col2, col3, col4, col5 = st.columns([2, 1, 2, 2, 1])
+                filepath = os.path.join(DEFAULT_IMAGES_DIR, filename)
+                if os.path.exists(filepath):
+                    col1.write(filename)
+                    col2.image(filepath, width=50)
+                    timestamp = pd.Timestamp(data['timestamp']).strftime("%Y-%m-%d %H:%M")
+                    col3.write(f"Gecategoriseerd op: {timestamp}")
+                    
+                    # Add category selection dropdown
+                    current_cat_id = data['category_id']
+                    categories_dict = {cat.name: cat_id for cat_id, cat in st.session_state.categories.items()}
+                    new_category = col4.selectbox(
+                        "Categorie",
+                        options=sorted(categories_dict.keys()),
+                        key=f"cat_select_{filename}",
+                        index=sorted(categories_dict.keys()).index(category_name)
+                    )
+                    
+                    # Add remove button
+                    if col5.button("🗑️", key=f"remove_{filename}", help="Verwijder categorisering"):
+                        remove_categorization(filename)
+                        st.success(f"Categorisering verwijderd voor: {filename}")
+                        st.rerun()
+                    
+                    # If category changed, update categorization
+                    if categories_dict[new_category] != current_cat_id:
+                        # Read current SVG content for analysis
+                        with open(filepath, 'r') as f:
+                            svg_content = f.read()
+                        scores = st.session_state.analyzer.analyze_svg(svg_content)
+                        save_categorization(filename, categories_dict[new_category], scores)
+                        st.rerun()
+
+def show_next_uncategorized_file(auto_categorize, confidence_threshold):
+    """Show and process the next uncategorized file"""
+    uncategorized = get_uncategorized_files()
+    if not uncategorized:
+        st.info(f"Geen ongecategoriseerde bestanden gevonden in {DEFAULT_IMAGES_DIR}")
+        st.write(f"Plaats SVG bestanden in de '{DEFAULT_IMAGES_DIR}' map om ze te categoriseren")
+        return
+    
+    current_file = uncategorized[0]  # Always show the first uncategorized file
+    filepath = os.path.join(DEFAULT_IMAGES_DIR, current_file)
+    
+    # Add CSS for sticky buttons and image size
+    st.markdown("""
+        <style>
+        .element-container img {
+            max-height: 50vh !important;
+            width: auto !important;
+            display: block !important;
+            margin: auto !important;
+        }
+        .category-buttons {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            padding: 1rem;
+            border-top: 1px solid #ddd;
+            z-index: 1000;
+        }
+        .main-content {
+            margin-bottom: 120px;  /* Space for fixed buttons */
+        }
+        .stButton > button {
+            height: 60px;
+            margin: 0 5px;
+            font-size: 16px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    # Main content div
+    st.markdown('<div class="main-content">', unsafe_allow_html=True)
+    
+    # Display current file
+    st.subheader(f"Categoriseren: {current_file}")
+    
+    # Create two columns for image and analysis
+    image_col, analysis_col = st.columns([2, 1])
+    
+    # Show image in left column
+    with image_col:
+        with open(filepath, 'r') as f:
+            svg_content = f.read()
+        st.image(filepath)
+    
+    # Show analysis in right column
+    with analysis_col:
+        if auto_categorize:
+            scores = st.session_state.analyzer.analyze_svg(svg_content)
+            suggested_category, confidence = st.session_state.analyzer.suggest_category(svg_content)
+            
+            st.write("### Analyse Resultaten")
+            st.write("Voorgestelde categorie:", suggested_category)
+            st.write(f"Betrouwbaarheid: {confidence:.2%}")
+            
+            st.write("Scores per categorie:")
+            for cat_name, score in scores.items():
+                st.write(f"- {cat_name}: {score:.2%}")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Category selection buttons with shortcuts in fixed container
+    st.markdown('<div class="category-buttons">', unsafe_allow_html=True)
+    st.write("### Kies een Categorie (1-9)")
+    
+    # Calculate button width based on number of categories
+    num_categories = len(st.session_state.categories)
+    button_width = min(90/num_categories, 30)  # Max width of 30% per button
+    
+    # Create single row of buttons
+    cols = st.columns(num_categories)
+    for i, (cat_id, category) in enumerate(sorted(st.session_state.categories.items(), key=lambda x: x[1].name)):
+        with cols[i]:
+            # Add shortcut number (1-9) if within first 9 categories
+            shortcut = f"[{i+1}] " if i < 9 else ""
+            # Add a specific class to categorization buttons
+            if st.button(f"{shortcut}{category.name}", key=f"btn_{cat_id}_{current_file}", use_container_width=True):
+                scores = st.session_state.analyzer.analyze_svg(svg_content) if auto_categorize else None
+                save_categorization(current_file, cat_id, scores)
+                st.success(f"Bestand gecategoriseerd als: {category.name}")
+                st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Add keyboard shortcuts using Streamlit components
+    components.html(
+        """
+        <script>
+        function handleKeyPress(event) {
+            console.log('Key pressed:', event.key);
+            
+            if (event.key >= '1' && event.key <= '9') {
+                // Find all buttons in the document
+                const allButtons = Array.from(window.parent.document.querySelectorAll('.stButton > button'));
+                console.log('All buttons found:', allButtons.length);
+                
+                // Filter buttons to only those with category names (containing '[X]')
+                const categoryButtons = allButtons.filter(btn => btn.textContent.includes('['));
+                console.log('Category buttons found:', categoryButtons.length);
+                categoryButtons.forEach((btn, idx) => {
+                    console.log(`Button ${idx}:`, btn.textContent);
+                });
+                
+                const index = parseInt(event.key) - 1;
+                console.log('Trying to click button at index:', index);
+                
+                if (index < categoryButtons.length) {
+                    console.log('Clicking button:', categoryButtons[index].textContent);
+                    categoryButtons[index].click();
+                }
+            }
+        }
+        
+        // Remove any existing event listener
+        window.parent.document.removeEventListener('keydown', handleKeyPress);
+        // Add the event listener
+        window.parent.document.addEventListener('keydown', handleKeyPress);
+        console.log('Keyboard shortcut handler installed');
+        </script>
+        """,
+        height=0,
+    )
+
+def show_category_keywords(category):
+    """Show and edit keywords for a category"""
+    st.write("Steekwoorden:")
+    
+    # Show current keywords
+    for i, keyword in enumerate(category.keywords):
+        cols = st.columns([3, 1])
+        # Show keyword with delete button
+        cols[0].text(keyword)
+        if cols[1].button("🗑️", key=f"del_keyword_{category.id}_{i}"):
+            category.keywords.remove(keyword)
+            save_categories(st.session_state.categories)
+            st.rerun()
+    
+    # Add new keyword
+    new_keyword = st.text_input("Nieuw steekwoord", key=f"new_keyword_{category.id}")
+    if st.button("Toevoegen", key=f"add_keyword_{category.id}") and new_keyword:
+        if new_keyword not in category.keywords:
+            category.keywords.append(new_keyword)
+            save_categories(st.session_state.categories)
+            st.rerun()
+        else:
+            st.error("Dit steekwoord bestaat al")
 
 def main():
     st.title("SVG File Categorizer 🏷️")
     
+    # Get file counts for tabs
+    uncategorized_files = get_uncategorized_files()
+    categorized_files = load_categorization()
+    uncategorized_count = len(uncategorized_files)
+    categorized_count = len(categorized_files)
+    
     # Sidebar for configuration
     with st.sidebar:
-        st.header("Settings")
+        st.header("Instellingen")
         
         # Auto-categorization settings
-        st.subheader("Automatische Categorisatie")
+        st.subheader("Automatische Analyse")
         auto_categorize = st.checkbox("Automatisch analyseren", value=True)
         confidence_threshold = st.slider(
             "Betrouwbaarheidsdrempel",
@@ -56,97 +362,112 @@ def main():
         )
         
         # Category management
-        st.subheader("Categorieën")
+        st.subheader("Categorieën Beheer")
+        
+        # Add new category
         new_category = st.text_input("Voeg nieuwe categorie toe")
         if st.button("Categorie Toevoegen") and new_category:
-            st.session_state.categories.add(new_category)
+            category_id = str(uuid.uuid4())
+            st.session_state.categories[category_id] = Category(category_id, new_category, [])
+            save_categories(st.session_state.categories)
             st.success(f"Categorie toegevoegd: {new_category}")
         
-        st.write("Huidige categorieën:")
-        for cat in sorted(st.session_state.categories):
-            st.write(f"- {cat}")
+        # List and manage existing categories
+        st.write("### Huidige Categorieën")
+        for cat_id, category in sorted(st.session_state.categories.items(), key=lambda x: x[1].name):
+            with st.expander(category.name):
+                col1, col2, col3 = st.columns([3, 1, 1])
+                
+                # Show category name or edit field
+                if st.session_state.editing_category == cat_id:
+                    new_name = col1.text_input("Nieuwe naam", category.name, key=f"edit_{cat_id}")
+                    if col2.button("Opslaan", key=f"save_{cat_id}"):
+                        category.name = new_name
+                        save_categories(st.session_state.categories)
+                        st.session_state.editing_category = None
+                        st.rerun()
+                else:
+                    col1.write(category.name)
+                    if col2.button("✏️", key=f"edit_{cat_id}"):
+                        st.session_state.editing_category = cat_id
+                
+                # Delete button
+                if col3.button("🗑️", key=f"delete_{cat_id}"):
+                    if len(st.session_state.categories) > 1:  # Prevent deleting all categories
+                        del st.session_state.categories[cat_id]
+                        save_categories(st.session_state.categories)
+                        st.rerun()
+                    else:
+                        st.error("Kan niet alle categorieën verwijderen")
+                
+                # Show and edit keywords
+                show_category_keywords(category)
     
     # Main content
-    uploaded_files = st.file_uploader("Upload SVG bestanden", type=['svg'], accept_multiple_files=True)
+    tab1, tab2, tab3 = st.tabs([
+        f"Categoriseren ({uncategorized_count})", 
+        "Upload Bestanden",
+        f"Gecategoriseerde Afbeeldingen ({categorized_count})"
+    ])
     
-    if uploaded_files:
-        # Create directories if they don't exist
-        for category in st.session_state.categories:
-            os.makedirs(category, exist_ok=True)
+    with tab1:
+        st.header("Categoriseer Afbeeldingen")
+        show_next_uncategorized_file(auto_categorize, confidence_threshold)
         
-        # Display current file
-        if st.session_state.current_file_index < len(uploaded_files):
-            current_file = uploaded_files[st.session_state.current_file_index]
+        # Add keyboard shortcuts using Streamlit components
+        components.html(
+            """
+            <script>
+            function handleKeyPress(event) {
+                console.log('Key pressed:', event.key);
+                
+                if (event.key >= '1' && event.key <= '9') {
+                    // Find all buttons in the document
+                    const allButtons = Array.from(window.parent.document.querySelectorAll('.stButton > button'));
+                    console.log('All buttons found:', allButtons.length);
+                    
+                    // Filter buttons to only those with category names (containing '[X]')
+                    const categoryButtons = allButtons.filter(btn => btn.textContent.includes('['));
+                    console.log('Category buttons found:', categoryButtons.length);
+                    categoryButtons.forEach((btn, idx) => {
+                        console.log(`Button ${idx}:`, btn.textContent);
+                    });
+                    
+                    const index = parseInt(event.key) - 1;
+                    console.log('Trying to click button at index:', index);
+                    
+                    if (index < categoryButtons.length) {
+                        console.log('Clicking button:', categoryButtons[index].textContent);
+                        categoryButtons[index].click();
+                    }
+                }
+            }
             
-            if current_file.name not in st.session_state.processed_files:
-                st.subheader(f"Categoriseren: {current_file.name}")
-                
-                # Read and display SVG content
-                svg_content = current_file.read().decode()
-                st.image(current_file, use_column_width=True)
-                current_file.seek(0)  # Reset file pointer
-                
-                # Analyze SVG if auto-categorization is enabled
-                if auto_categorize:
-                    scores = st.session_state.analyzer.analyze_svg(svg_content)
-                    suggested_category, confidence = st.session_state.analyzer.suggest_category(svg_content)
-                    
-                    # Display analysis results
-                    st.write("### Analyse Resultaten")
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.write("Voorgestelde categorie:", suggested_category)
-                        st.write(f"Betrouwbaarheid: {confidence:.2%}")
-                    
-                    with col2:
-                        st.write("Scores per categorie:")
-                        for cat, score in scores.items():
-                            st.write(f"- {cat}: {score:.2%}")
-                    
-                    # Auto-categorize if confidence is high enough
-                    if confidence >= confidence_threshold:
-                        save_path = os.path.join(suggested_category, current_file.name)
-                        with open(save_path, 'wb') as f:
-                            current_file.seek(0)
-                            f.write(current_file.read())
-                        
-                        save_categorization(current_file.name, suggested_category, scores)
-                        st.session_state.processed_files.add(current_file.name)
-                        st.session_state.current_file_index += 1
-                        st.success(f"Automatisch gecategoriseerd als: {suggested_category}")
-                        st.rerun()
-                
-                # Category selection buttons
-                st.write("### Handmatige Categorisatie")
-                cols = st.columns(len(st.session_state.categories))
-                for col, category in zip(cols, sorted(st.session_state.categories)):
-                    if col.button(category, key=f"btn_{category}_{current_file.name}"):
-                        # Save file to category directory
-                        save_path = os.path.join(category, current_file.name)
-                        with open(save_path, 'wb') as f:
-                            current_file.seek(0)
-                            f.write(current_file.read())
-                        
-                        # Save categorization with analysis scores if available
-                        scores = st.session_state.analyzer.analyze_svg(svg_content) if auto_categorize else None
-                        save_categorization(current_file.name, category, scores)
-                        
-                        st.session_state.processed_files.add(current_file.name)
-                        st.session_state.current_file_index += 1
-                        st.rerun()
-        
-        # Show progress
-        progress = len(st.session_state.processed_files) / len(uploaded_files)
-        st.progress(progress)
-        st.write(f"Verwerkt: {len(st.session_state.processed_files)} van {len(uploaded_files)} bestanden")
-        
-        if len(st.session_state.processed_files) == len(uploaded_files):
-            st.success("Alle bestanden zijn gecategoriseerd!")
-            if st.button("Opnieuw Beginnen"):
-                st.session_state.current_file_index = 0
-                st.session_state.processed_files = set()
-                st.rerun()
+            // Remove any existing event listener
+            window.parent.document.removeEventListener('keydown', handleKeyPress);
+            // Add the event listener
+            window.parent.document.addEventListener('keydown', handleKeyPress);
+            console.log('Keyboard shortcut handler installed');
+            </script>
+            """,
+            height=0,
+        )
+    
+    with tab2:
+        st.header("Upload Nieuwe Bestanden")
+        uploaded_files = st.file_uploader("Upload SVG bestanden", type=['svg'], accept_multiple_files=True)
+        if uploaded_files:
+            for uploaded_file in uploaded_files:
+                # Save uploaded file to images directory
+                save_path = os.path.join(DEFAULT_IMAGES_DIR, uploaded_file.name)
+                with open(save_path, 'wb') as f:
+                    f.write(uploaded_file.getvalue())
+            st.success(f"{len(uploaded_files)} bestand(en) geüpload naar {DEFAULT_IMAGES_DIR}")
+            st.rerun()
+    
+    with tab3:
+        st.header("Gecategoriseerde Afbeeldingen")
+        show_categorized_files()
 
 if __name__ == "__main__":
     main() 
