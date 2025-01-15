@@ -1,0 +1,90 @@
+[
+    {
+        "id": "basic_shape",
+        "name": "Basisvorm",
+        "options": [
+            {
+                "value": "\ud83d\udfea Vierhoek",
+                "order": 0
+            },
+            {
+                "value": "\ud83d\udfe0 Rond",
+                "order": 1
+            },
+            {
+                "value": "\ud83d\udcd0 Driehoek",
+                "order": 2
+            },
+            {
+                "value": "Tekst",
+                "order": 3
+            },
+            {
+                "value": "Custom vorm",
+                "order": 4
+            }
+        ],
+        "order": 0
+    },
+    {
+        "id": "cutout",
+        "name": "Uitsparing",
+        "options": [
+            {
+                "value": "Niet van toepassing",
+                "order": 0
+            },
+            {
+                "value": "Vierhoek",
+                "order": 1
+            },
+            {
+                "value": "Rond",
+                "order": 2
+            },
+            {
+                "value": "Driehoek",
+                "order": 3
+            },
+            {
+                "value": "Tekst",
+                "order": 4
+            },
+            {
+                "value": "Custom vorm",
+                "order": 5
+            }
+        ],
+        "order": 1
+    },
+    {
+        "id": "drill_holes",
+        "name": "Boorgaten",
+        "options": [
+            {
+                "value": "Ja",
+                "order": 0
+            },
+            {
+                "value": "Nee",
+                "order": 1
+            }
+        ],
+        "order": 2
+    },
+    {
+        "id": "rounded_corners",
+        "name": "Afgeronde hoeken",
+        "options": [
+            {
+                "value": "Ja",
+                "order": 0
+            },
+            {
+                "value": "Nee",
+                "order": 1
+            }
+        ],
+        "order": 3
+    }
+]

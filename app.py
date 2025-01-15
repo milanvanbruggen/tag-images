@@ -10,203 +10,280 @@ import streamlit.components.v1 as components
 
 # Set page config
 st.set_page_config(
-    page_title="SVG Categorizer",
+    page_title="SVG Typering",
     page_icon="🏷️",
     layout="wide"
 )
 
 # Constants for file paths
 DEFAULT_IMAGES_DIR = "images"
-CATEGORIES_FILE = "categories.json"
-CATEGORIZATION_FILE = "categorized_images.json"
+TYPING_CONFIG_FILE = "typing_config.json"
+TYPING_RESULTS_FILE = "typed_images.json"
 
-class Category:
-    def __init__(self, id, name, keywords=None):
+class TypingStep:
+    def __init__(self, id, name, options, order=None):
         self.id = id
         self.name = name
-        self.keywords = keywords or []
+        self.options = options if isinstance(options, list) else []
+        self.order = order
+        # Initialize option orders if not present
+        if not all(isinstance(opt, dict) for opt in self.options):
+            self.options = [{'value': opt, 'order': i} for i, opt in enumerate(self.options)]
 
     def to_dict(self):
         return {
             'id': self.id,
             'name': self.name,
-            'keywords': self.keywords
+            'options': self.options,
+            'order': self.order
         }
 
     @staticmethod
     def from_dict(data):
-        return Category(data['id'], data['name'], data.get('keywords', []))
+        return TypingStep(data['id'], data['name'], data['options'], data.get('order'))
 
-def load_categories():
-    """Load categories from JSON file"""
-    if os.path.exists(CATEGORIES_FILE):
-        with open(CATEGORIES_FILE, 'r') as f:
-            categories_data = json.load(f)
-            return {cat['id']: Category.from_dict(cat) for cat in categories_data}
+    def get_ordered_options(self):
+        """Get options sorted by order"""
+        return [opt['value'] for opt in sorted(self.options, key=lambda x: x['order'])]
+
+    def get_option_by_value(self, value):
+        """Get option dict by value"""
+        return next((opt for opt in self.options if opt['value'] == value), None)
+
+def load_typing_config():
+    """Load typing configuration from JSON file"""
+    if os.path.exists(TYPING_CONFIG_FILE):
+        with open(TYPING_CONFIG_FILE, 'r') as f:
+            config_data = json.load(f)
+            steps = {step['id']: TypingStep.from_dict(step) for step in config_data}
+            
+            # Ensure all steps have an order
+            if any(step.order is None for step in steps.values()):
+                for i, step in enumerate(steps.values()):
+                    step.order = i
+                save_typing_config(steps)
+            
+            return steps
     
-    # Default categories with generated IDs
-    default_categories = {
-        str(uuid.uuid4()): Category(str(uuid.uuid4()), 'icons', ['icon', 'symbol', 'glyph']),
-        str(uuid.uuid4()): Category(str(uuid.uuid4()), 'logos', ['logo', 'brand', 'company']),
-        str(uuid.uuid4()): Category(str(uuid.uuid4()), 'illustrations', ['illustration', 'scene', 'drawing'])
+    # Default typing steps with order
+    default_steps = {
+        'basic_shape': TypingStep('basic_shape', 'Basisvorm', [
+            'Vierhoek', 'Rond', 'Driehoek', 'Tekst', 'Custom vorm'
+        ], 0),
+        'cutout': TypingStep('cutout', 'Uitsparing', [
+            'Niet van toepassing', 'Vierhoek', 'Rond', 'Driehoek', 'Tekst', 'Custom vorm'
+        ], 1),
+        'drill_holes': TypingStep('drill_holes', 'Boorgaten', [
+            'Ja', 'Nee'
+        ], 2),
+        'rounded_corners': TypingStep('rounded_corners', 'Afgeronde hoeken', [
+            'Ja', 'Nee'
+        ], 3)
     }
-    save_categories(default_categories)
-    return default_categories
+    save_typing_config(default_steps)
+    return default_steps
 
-def save_categories(categories):
-    """Save categories to JSON file"""
-    categories_data = [cat.to_dict() for cat in categories.values()]
-    with open(CATEGORIES_FILE, 'w') as f:
-        json.dump(categories_data, f, indent=4)
+def save_typing_config(config):
+    """Save typing configuration to JSON file"""
+    config_data = [step.to_dict() for step in config.values()]
+    with open(TYPING_CONFIG_FILE, 'w') as f:
+        json.dump(config_data, f, indent=4)
 
-def load_categorization():
-    """Load categorization data from JSON file"""
-    if os.path.exists(CATEGORIZATION_FILE):
+def load_typing_results():
+    """Load typing results from JSON file"""
+    if os.path.exists(TYPING_RESULTS_FILE):
         try:
-            with open(CATEGORIZATION_FILE, 'r') as f:
+            with open(TYPING_RESULTS_FILE, 'r') as f:
                 content = f.read().strip()
-                if content:  # Only try to parse if file is not empty
+                if content:
                     return json.loads(content)
         except json.JSONDecodeError:
-            pass  # If there's an error reading the JSON, return empty dict
+            pass
     return {}
 
-def save_categorization(filename, category_id, scores=None):
-    """Save the categorization to a JSON file"""
-    data = load_categorization()
-    
+def save_typing_result(filename, results):
+    """Save typing results for a file"""
+    data = load_typing_results()
     data[filename] = {
-        'category_id': category_id,
-        'analysis_scores': scores,
+        'results': results,
         'timestamp': str(pd.Timestamp.now())
     }
-    
-    with open(CATEGORIZATION_FILE, 'w') as f:
+    with open(TYPING_RESULTS_FILE, 'w') as f:
         json.dump(data, f, indent=4)
 
-def get_uncategorized_files():
-    """Get list of uncategorized SVG files from default directory"""
+def get_untyped_files():
+    """Get list of untyped SVG files"""
     if not os.path.exists(DEFAULT_IMAGES_DIR):
         os.makedirs(DEFAULT_IMAGES_DIR)
     
-    categorized = load_categorization()
+    typed = load_typing_results()
     all_files = [f for f in os.listdir(DEFAULT_IMAGES_DIR) if f.lower().endswith('.svg')]
-    return [f for f in all_files if f not in categorized]
-
-def read_svg_file(filepath):
-    """Read SVG file content"""
-    with open(filepath, 'rb') as f:
-        return f.read()
-
-def rename_category_directory(old_name, new_name):
-    """Rename category directory if it exists"""
-    if os.path.exists(old_name):
-        os.rename(old_name, new_name)
+    return [f for f in all_files if f not in typed]
 
 # Initialize session state
-if 'categories' not in st.session_state:
-    st.session_state.categories = load_categories()
+if 'typing_steps' not in st.session_state:
+    st.session_state.typing_steps = load_typing_config()
 if 'current_file_index' not in st.session_state:
     st.session_state.current_file_index = 0
-if 'processed_files' not in st.session_state:
-    st.session_state.processed_files = set()
-if 'analyzer' not in st.session_state:
-    st.session_state.analyzer = SVGAnalyzer()
-if 'using_uploaded_files' not in st.session_state:
-    st.session_state.using_uploaded_files = False
-if 'editing_category' not in st.session_state:
-    st.session_state.editing_category = None
+if 'current_step' not in st.session_state:
+    st.session_state.current_step = list(st.session_state.typing_steps.keys())[0]
+if 'current_results' not in st.session_state:
+    st.session_state.current_results = {}
 
-def remove_categorization(filename):
-    """Remove categorization for a file"""
-    data = load_categorization()
-    if filename in data:
-        del data[filename]
-        with open(CATEGORIZATION_FILE, 'w') as f:
-            json.dump(data, f, indent=4)
+def show_typing_config():
+    """Show and edit typing configuration"""
+    st.header("Typering Configuratie")
+    
+    # Add new step
+    new_step_name = st.text_input("Nieuwe stap toevoegen")
+    if st.button("Stap Toevoegen") and new_step_name:
+        step_id = str(uuid.uuid4())
+        max_order = max((step.order for step in st.session_state.typing_steps.values()), default=-1)
+        st.session_state.typing_steps[step_id] = TypingStep(step_id, new_step_name, [], max_order + 1)
+        save_typing_config(st.session_state.typing_steps)
+        st.success(f"Stap toegevoegd: {new_step_name}")
+        st.rerun()
+    
+    # Sort steps by order
+    sorted_steps = sorted(st.session_state.typing_steps.items(), key=lambda x: x[1].order)
+    
+    # Edit existing steps
+    for step_id, step in sorted_steps:
+        with st.expander(step.name):
+            cols = st.columns([3, 1, 1])
+            
+            # Move step up/down buttons
+            with cols[1]:
+                if st.button("⬆️", key=f"up_step_{step_id}", disabled=step.order == 0):
+                    for other_id, other_step in st.session_state.typing_steps.items():
+                        if other_step.order == step.order - 1:
+                            step.order, other_step.order = other_step.order, step.order
+                            save_typing_config(st.session_state.typing_steps)
+                            st.rerun()
+                            break
+            
+            with cols[2]:
+                if st.button("⬇️", key=f"down_step_{step_id}", disabled=step.order == len(sorted_steps) - 1):
+                    for other_id, other_step in st.session_state.typing_steps.items():
+                        if other_step.order == step.order + 1:
+                            step.order, other_step.order = other_step.order, step.order
+                            save_typing_config(st.session_state.typing_steps)
+                            st.rerun()
+                            break
+            
+            # Edit step name
+            new_name = st.text_input("Naam", step.name, key=f"name_step_{step_id}")
+            if new_name != step.name:
+                step.name = new_name
+                save_typing_config(st.session_state.typing_steps)
+            
+            # Edit options
+            st.write("Opties:")
+            for option in sorted(step.options, key=lambda x: x['order']):
+                option_id = f"{step_id}_{option['order']}"
+                cols = st.columns([3, 1, 1, 1])
+                
+                # Option name with edit functionality
+                old_value = option['value']
+                new_value = cols[0].text_input(
+                    "Optie",  # Add a label to prevent warning
+                    old_value,
+                    key=f"option_value_{option_id}",
+                    label_visibility="collapsed"  # Hide the label
+                )
+                if new_value != old_value:
+                    # Update option value
+                    option['value'] = new_value
+                    save_typing_config(st.session_state.typing_steps)
+                    
+                    # Update existing results that use this option
+                    typed_files = load_typing_results()
+                    modified = False
+                    for file_data in typed_files.values():
+                        results = file_data['results']
+                        if step_id in results and results[step_id] == old_value:
+                            results[step_id] = new_value
+                            modified = True
+                    
+                    if modified:
+                        with open(TYPING_RESULTS_FILE, 'w') as f:
+                            json.dump(typed_files, f, indent=4)
+                    
+                    st.rerun()
+                
+                # Move option up
+                if cols[1].button("⬆️", key=f"up_opt_{option_id}", 
+                                disabled=option['order'] == 0):
+                    for other_opt in step.options:
+                        if other_opt['order'] == option['order'] - 1:
+                            option['order'], other_opt['order'] = other_opt['order'], option['order']
+                            save_typing_config(st.session_state.typing_steps)
+                            st.rerun()
+                            break
+                
+                # Move option down
+                if cols[2].button("⬇️", key=f"down_opt_{option_id}", 
+                                disabled=option['order'] == len(step.options) - 1):
+                    for other_opt in step.options:
+                        if other_opt['order'] == option['order'] + 1:
+                            option['order'], other_opt['order'] = other_opt['order'], option['order']
+                            save_typing_config(st.session_state.typing_steps)
+                            st.rerun()
+                            break
+                
+                # Delete option
+                if cols[3].button("🗑️", key=f"del_opt_{option_id}"):
+                    deleted_order = option['order']
+                    step.options = [opt for opt in step.options if opt['order'] != deleted_order]
+                    # Reorder remaining options
+                    for opt in step.options:
+                        if opt['order'] > deleted_order:
+                            opt['order'] -= 1
+                    save_typing_config(st.session_state.typing_steps)
+                    st.rerun()
+            
+            # Add new option
+            new_option = st.text_input("Nieuwe optie", key=f"new_option_step_{step_id}")
+            if st.button("Optie Toevoegen", key=f"add_option_step_{step_id}") and new_option:
+                if not any(opt['value'] == new_option for opt in step.options):
+                    max_order = max((opt['order'] for opt in step.options), default=-1)
+                    step.options.append({'value': new_option, 'order': max_order + 1})
+                    save_typing_config(st.session_state.typing_steps)
+                    st.rerun()
+                else:
+                    st.error("Deze optie bestaat al")
+            
+            # Delete step
+            if st.button("Stap Verwijderen", key=f"del_step_{step_id}"):
+                if len(st.session_state.typing_steps) > 1:
+                    deleted_order = step.order
+                    del st.session_state.typing_steps[step_id]
+                    for other_step in st.session_state.typing_steps.values():
+                        if other_step.order > deleted_order:
+                            other_step.order -= 1
+                    save_typing_config(st.session_state.typing_steps)
+                    st.rerun()
+                else:
+                    st.error("Kan niet alle stappen verwijderen")
 
-def show_categorized_files():
-    """Show overview of categorized files grouped by category"""
-    categorization = load_categorization()
-    if not categorization:
-        st.info("Nog geen bestanden gecategoriseerd")
+def show_next_untyped_file():
+    """Show and process the next untyped file"""
+    untyped = get_untyped_files()
+    if not untyped:
+        st.info(f"Geen ongetypeerde bestanden gevonden in {DEFAULT_IMAGES_DIR}")
+        st.write(f"Plaats SVG bestanden in de '{DEFAULT_IMAGES_DIR}' map om ze te typeren")
         return
-    
-    # Group files by category
-    files_by_category = {}
-    for filename, data in categorization.items():
-        category_id = data['category_id']
-        if category_id in st.session_state.categories:
-            category_name = st.session_state.categories[category_id].name
-            if category_name not in files_by_category:
-                files_by_category[category_name] = []
-            files_by_category[category_name].append((filename, data))
-    
-    # Display files by category
-    for category_name, files in sorted(files_by_category.items()):
-        with st.expander(f"{category_name} ({len(files)} bestanden)"):
-            for filename, data in sorted(files, key=lambda x: x[0]):
-                col1, col2, col3, col4, col5 = st.columns([2, 1, 2, 2, 1])
-                filepath = os.path.join(DEFAULT_IMAGES_DIR, filename)
-                if os.path.exists(filepath):
-                    col1.write(filename)
-                    col2.image(filepath, width=50)
-                    timestamp = pd.Timestamp(data['timestamp']).strftime("%Y-%m-%d %H:%M")
-                    col3.write(f"Gecategoriseerd op: {timestamp}")
-                    
-                    # Add category selection dropdown
-                    current_cat_id = data['category_id']
-                    categories_dict = {cat.name: cat_id for cat_id, cat in st.session_state.categories.items()}
-                    new_category = col4.selectbox(
-                        "Categorie",
-                        options=sorted(categories_dict.keys()),
-                        key=f"cat_select_{filename}",
-                        index=sorted(categories_dict.keys()).index(category_name)
-                    )
-                    
-                    # Add remove button
-                    if col5.button("🗑️", key=f"remove_{filename}", help="Verwijder categorisering"):
-                        remove_categorization(filename)
-                        st.success(f"Categorisering verwijderd voor: {filename}")
-                        st.rerun()
-                    
-                    # If category changed, update categorization
-                    if categories_dict[new_category] != current_cat_id:
-                        # Read current SVG content for analysis
-                        with open(filepath, 'r') as f:
-                            svg_content = f.read()
-                        scores = st.session_state.analyzer.analyze_svg(svg_content)
-                        save_categorization(filename, categories_dict[new_category], scores)
-                        st.rerun()
 
-def show_next_uncategorized_file(auto_categorize, confidence_threshold):
-    """Show and process the next uncategorized file"""
-    uncategorized = get_uncategorized_files()
-    if not uncategorized:
-        st.info(f"Geen ongecategoriseerde bestanden gevonden in {DEFAULT_IMAGES_DIR}")
-        st.write(f"Plaats SVG bestanden in de '{DEFAULT_IMAGES_DIR}' map om ze te categoriseren")
-        return
-
-    # Initialize current index in session state if not exists
-    if 'current_file_index' not in st.session_state:
-        st.session_state.current_file_index = 0
-    
-    # Navigation and file info in one container with gray background
+    # Navigation and file info
     nav_container = st.container()
     with nav_container:
         st.markdown("""
             <style>
             [data-testid="stVerticalBlock"] > div:has(button:contains("⬅️")) {
                 background-color: #f0f2f6;
-                padding: 1rem;
+                padding: 0.5rem;
                 border-radius: 0.5rem;
                 margin-bottom: 1rem;
-            }
-            [data-testid="stVerticalBlock"] > div:has(button:contains("⬅️")) > div {
-                margin-bottom: 0;
-            }
-            [data-testid="stVerticalBlock"] > div:has(button:contains("⬅️")) [data-testid="stCaption"] {
-                margin-top: 0.5rem;
             }
             </style>
         """, unsafe_allow_html=True)
@@ -214,144 +291,74 @@ def show_next_uncategorized_file(auto_categorize, confidence_threshold):
         # Navigation row
         nav_col1, nav_col2 = st.columns([8, 2])
         
-        # Left side: navigation buttons
         with nav_col1:
             nav_buttons_col1, nav_buttons_col2, nav_buttons_col3 = st.columns([1, 1, 18])
             with nav_buttons_col1:
                 if st.button("⬅️", disabled=st.session_state.current_file_index == 0):
                     st.session_state.current_file_index = max(0, st.session_state.current_file_index - 1)
-                    if 'current_analysis' in st.session_state:
-                        del st.session_state.current_analysis
+                    st.session_state.current_results = {}
+                    st.session_state.current_step = list(st.session_state.typing_steps.keys())[0]
                     st.rerun()
             with nav_buttons_col2:
-                if st.button("➡️", disabled=st.session_state.current_file_index == len(uncategorized) - 1):
-                    st.session_state.current_file_index = min(len(uncategorized) - 1, st.session_state.current_file_index + 1)
-                    if 'current_analysis' in st.session_state:
-                        del st.session_state.current_analysis
+                if st.button("➡️", disabled=st.session_state.current_file_index == len(untyped) - 1):
+                    st.session_state.current_file_index = min(len(untyped) - 1, st.session_state.current_file_index + 1)
+                    st.session_state.current_results = {}
+                    st.session_state.current_step = list(st.session_state.typing_steps.keys())[0]
                     st.rerun()
         
-        # Right side: file counter
         with nav_col2:
-            st.write(f"Afbeelding {st.session_state.current_file_index + 1} van {len(uncategorized)}")
+            st.write(f"Afbeelding {st.session_state.current_file_index + 1} van {len(untyped)}")
         
-        # Display current file name below navigation
-        current_file = uncategorized[st.session_state.current_file_index]
+        current_file = untyped[st.session_state.current_file_index]
         filepath = os.path.join(DEFAULT_IMAGES_DIR, current_file)
-        st.caption(f"Categoriseren: {current_file}")
+        st.caption(f"Typeren: {current_file}")
     
-    # Add CSS for sticky buttons and image size
-    st.markdown("""
-        <style>
-        .element-container img {
-            max-height: 50vh !important;
-            width: auto !important;
-            display: block !important;
-            margin: auto !important;
-            margin-bottom: 0 !important;
-        }
-        [data-testid="caption"] {
-            margin-top: 0.2rem !important;
-        }
-        .main-content {
-            margin-bottom: 120px;  /* Space for fixed buttons */
-        }
-        .stButton > button {
-            height: 60px;
-            margin: 0 5px;
-            font-size: 16px;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+    # Show current step and options
+    current_step = st.session_state.typing_steps[st.session_state.current_step]
+    st.subheader(current_step.name)
     
-    # Main content div
-    st.markdown('<div class="main-content">', unsafe_allow_html=True)
-    
-    # Create two columns for image and analysis
-    image_col, analysis_col = st.columns([2, 1])
-    
-    # Show image in left column
-    with image_col:
-        with open(filepath, 'r') as f:
-            svg_content = f.read()
-        st.image(filepath)
-    
-    # Show analysis in right column
-    with analysis_col:
-        if auto_categorize:
-            # Get or calculate analysis results
-            if 'current_analysis' not in st.session_state:
-                scores = st.session_state.analyzer.analyze_svg(svg_content)
-                suggested_category, confidence = st.session_state.analyzer.suggest_category(svg_content)
-                st.session_state.current_analysis = {
-                    'scores': scores,
-                    'suggested_category': suggested_category,
-                    'confidence': confidence
-                }
-            else:
-                scores = st.session_state.current_analysis['scores']
-                suggested_category = st.session_state.current_analysis['suggested_category']
-                confidence = st.session_state.current_analysis['confidence']
-            
-            st.markdown("### Analyse Resultaten")
-            
-            # Create a container with custom styling for the analysis results
-            analysis_container = st.container()
-            with analysis_container:
-                st.markdown("""
-                    <style>
-                    [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
-                        background-color: #f0f2f6;
-                        padding: 1rem;
-                        border-radius: 0.5rem;
-                    }
-                    </style>
-                """, unsafe_allow_html=True)
-                
-                # Suggested category and confidence
-                st.info(f"**Voorgestelde categorie:** {suggested_category}")
-                st.progress(confidence, text=f"Betrouwbaarheid: {confidence:.1%}")
-                
-                # Show detailed scores in an expander
-                with st.expander("Bekijk alle scores", expanded=True):
-                    for cat_name, score in sorted(scores.items(), key=lambda x: x[1], reverse=True):
-                        st.progress(score, text=f"{cat_name}: {score:.1%}")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Category selection buttons with shortcuts in fixed container
-    st.markdown('<div class="category-buttons">', unsafe_allow_html=True)
-    
-    # Calculate button width based on number of categories
-    num_categories = len(st.session_state.categories)
-    button_width = min(90/num_categories, 30)  # Max width of 30% per button
-    
-    # Create single row of buttons
-    cols = st.columns(num_categories)
-    for i, (cat_id, category) in enumerate(sorted(st.session_state.categories.items(), key=lambda x: x[1].name)):
+    # Create columns for options
+    ordered_options = current_step.get_ordered_options()
+    cols = st.columns(len(ordered_options))
+    for i, option_value in enumerate(ordered_options):
         with cols[i]:
-            # Add shortcut number (1-9) if within first 9 categories
-            shortcut = f"[{i+1}] " if i < 9 else ""
-            if st.button(f"{shortcut}{category.name}", key=f"btn_{cat_id}_{current_file}", use_container_width=True):
-                scores = st.session_state.analyzer.analyze_svg(svg_content) if auto_categorize else None
-                save_categorization(current_file, cat_id, scores)
-                st.success(f"Bestand gecategoriseerd als: {category.name}")
+            # Add number prefix for keyboard shortcut
+            button_label = f"[{i+1}] {option_value}"
+            if st.button(button_label, key=f"option_{current_step.id}_{i}", use_container_width=True):
+                st.session_state.current_results[current_step.id] = option_value
+                
+                # Move to next step or save results
+                sorted_steps = sorted(st.session_state.typing_steps.items(), key=lambda x: x[1].order)
+                current_index = next(i for i, (step_id, _) in enumerate(sorted_steps) if step_id == st.session_state.current_step)
+                
+                if current_index < len(sorted_steps) - 1:
+                    st.session_state.current_step = sorted_steps[current_index + 1][0]
+                else:
+                    save_typing_result(current_file, st.session_state.current_results)
+                    st.session_state.current_results = {}
+                    st.session_state.current_step = sorted_steps[0][0]
+                    st.success("Typering opgeslagen!")
                 st.rerun()
     
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Add some spacing
+    st.markdown("<div style='margin-bottom: 2rem;'></div>", unsafe_allow_html=True)
     
-    # Add keyboard shortcuts using Streamlit components
+    # Show image
+    with open(filepath, 'r') as f:
+        svg_content = f.read()
+    st.image(filepath)
+    
+    # Add keyboard shortcuts
     components.html(
         """
         <script>
         function handleKeyPress(event) {
-            // Handle number keys for categories
+            // Handle number keys for options (1-9)
             if (event.key >= '1' && event.key <= '9') {
                 const allButtons = Array.from(window.parent.document.querySelectorAll('.stButton > button'));
-                const categoryButtons = allButtons.filter(btn => btn.textContent.includes('['));
-                const index = parseInt(event.key) - 1;
-                
-                if (index < categoryButtons.length) {
-                    categoryButtons[index].click();
+                const optionButtons = allButtons.filter(btn => btn.textContent.includes('[' + event.key + ']'));
+                if (optionButtons.length > 0) {
+                    optionButtons[0].click();
                 }
             }
             // Handle arrow keys for navigation
@@ -377,113 +384,95 @@ def show_next_uncategorized_file(auto_categorize, confidence_threshold):
         height=0,
     )
 
-def show_category_keywords(category):
-    """Show and edit keywords for a category"""
-    st.write("Steekwoorden:")
+def show_typed_files():
+    """Show overview of typed files"""
+    typed = load_typing_results()
+    if not typed:
+        st.info("Nog geen bestanden getypeerd")
+        return
     
-    # Show current keywords
-    for i, keyword in enumerate(category.keywords):
-        cols = st.columns([3, 1])
-        # Show keyword with delete button
-        cols[0].text(keyword)
-        if cols[1].button("🗑️", key=f"del_keyword_{category.id}_{i}"):
-            category.keywords.remove(keyword)
-            save_categories(st.session_state.categories)
-            st.rerun()
+    # Sort steps by order for consistent display
+    sorted_steps = sorted(st.session_state.typing_steps.items(), key=lambda x: x[1].order)
     
-    # Add new keyword
-    new_keyword = st.text_input("Nieuw steekwoord", key=f"new_keyword_{category.id}")
-    if st.button("Toevoegen", key=f"add_keyword_{category.id}") and new_keyword:
-        if new_keyword not in category.keywords:
-            category.keywords.append(new_keyword)
-            save_categories(st.session_state.categories)
-            st.rerun()
-        else:
-            st.error("Dit steekwoord bestaat al")
+    for filename, data in sorted(typed.items()):
+        with st.expander(filename):
+            col1, col2, col3 = st.columns([2, 3, 1])
+            
+            filepath = os.path.join(DEFAULT_IMAGES_DIR, filename)
+            if os.path.exists(filepath):
+                col1.image(filepath, width=100)
+                
+                # Show results with dropdowns
+                results = data['results']
+                modified = False
+                
+                for step_id, step in sorted_steps:
+                    current_value = results.get(step_id, "Niet ingevuld")
+                    
+                    # Create dropdown with all options plus "Niet ingevuld"
+                    options = ["Niet ingevuld"] + step.get_ordered_options()
+                    
+                    # Handle case where current value is not in options anymore
+                    if current_value not in options:
+                        current_value = "Niet ingevuld"
+                        if step_id in results:
+                            del results[step_id]
+                            modified = True
+                    
+                    new_value = col2.selectbox(
+                        step.name,
+                        options=options,
+                        index=options.index(current_value),
+                        key=f"select_{filename}_{step_id}"
+                    )
+                    
+                    # Update results if value changed
+                    if new_value != current_value:
+                        if new_value == "Niet ingevuld":
+                            if step_id in results:
+                                del results[step_id]
+                        else:
+                            results[step_id] = new_value
+                        modified = True
+                
+                # Save if any values were modified
+                if modified:
+                    typed[filename]['results'] = results
+                    with open(TYPING_RESULTS_FILE, 'w') as f:
+                        json.dump(typed, f, indent=4)
+                
+                # Add remove button
+                if col3.button("🗑️", key=f"remove_{filename}"):
+                    del typed[filename]
+                    with open(TYPING_RESULTS_FILE, 'w') as f:
+                        json.dump(typed, f, indent=4)
+                    st.rerun()
 
 def main():
-    st.title("SVG File Categorizer 🏷️")
+    st.title("SVG Typering 🏷️")
     
-    # Get file counts for tabs
-    uncategorized_files = get_uncategorized_files()
-    categorized_files = load_categorization()
-    uncategorized_count = len(uncategorized_files)
-    categorized_count = len(categorized_files)
-    
-    # Sidebar for configuration
-    with st.sidebar:
-        st.header("Instellingen")
-        
-        # Auto-categorization settings
-        st.subheader("Automatische Analyse")
-        auto_categorize = st.checkbox("Automatisch analyseren", value=True)
-        confidence_threshold = st.slider(
-            "Betrouwbaarheidsdrempel",
-            min_value=0.0,
-            max_value=1.0,
-            value=0.6,
-            help="Minimale betrouwbaarheidsscore voor automatische categorisatie"
-        )
-        
-        # Category management
-        st.subheader("Categorieën Beheer")
-        
-        # Add new category
-        new_category = st.text_input("Voeg nieuwe categorie toe")
-        if st.button("Categorie Toevoegen") and new_category:
-            category_id = str(uuid.uuid4())
-            st.session_state.categories[category_id] = Category(category_id, new_category, [])
-            save_categories(st.session_state.categories)
-            st.success(f"Categorie toegevoegd: {new_category}")
-        
-        # List and manage existing categories
-        st.write("### Huidige Categorieën")
-        for cat_id, category in sorted(st.session_state.categories.items(), key=lambda x: x[1].name):
-            with st.expander(category.name):
-                col1, col2, col3 = st.columns([3, 1, 1])
-                
-                # Show category name or edit field
-                if st.session_state.editing_category == cat_id:
-                    new_name = col1.text_input("Nieuwe naam", category.name, key=f"edit_{cat_id}")
-                    if col2.button("Opslaan", key=f"save_{cat_id}"):
-                        category.name = new_name
-                        save_categories(st.session_state.categories)
-                        st.session_state.editing_category = None
-                        st.rerun()
-                else:
-                    col1.write(category.name)
-                    if col2.button("✏️", key=f"edit_{cat_id}"):
-                        st.session_state.editing_category = cat_id
-                
-                # Delete button
-                if col3.button("🗑️", key=f"delete_{cat_id}"):
-                    if len(st.session_state.categories) > 1:  # Prevent deleting all categories
-                        del st.session_state.categories[cat_id]
-                        save_categories(st.session_state.categories)
-                        st.rerun()
-                    else:
-                        st.error("Kan niet alle categorieën verwijderen")
-                
-                # Show and edit keywords
-                show_category_keywords(category)
+    # Get file counts
+    untyped_files = get_untyped_files()
+    typed_files = load_typing_results()
+    untyped_count = len(untyped_files)
+    typed_count = len(typed_files)
     
     # Main content
-    tab1, tab2, tab3 = st.tabs([
-        f"Categoriseren ({uncategorized_count})", 
+    tab1, tab2, tab3, tab4 = st.tabs([
+        f"Typeren ({untyped_count})", 
         "Upload Bestanden",
-        f"Gecategoriseerde Afbeeldingen ({categorized_count})"
+        f"Getypeerde Afbeeldingen ({typed_count})",
+        "Typering Configuratie"
     ])
     
     with tab1:
-        st.header("Categoriseer Afbeeldingen")
-        show_next_uncategorized_file(auto_categorize, confidence_threshold)
+        show_next_untyped_file()
     
     with tab2:
         st.header("Upload Nieuwe Bestanden")
         uploaded_files = st.file_uploader("Upload SVG bestanden", type=['svg'], accept_multiple_files=True)
         if uploaded_files:
             for uploaded_file in uploaded_files:
-                # Save uploaded file to images directory
                 save_path = os.path.join(DEFAULT_IMAGES_DIR, uploaded_file.name)
                 with open(save_path, 'wb') as f:
                     f.write(uploaded_file.getvalue())
@@ -491,8 +480,11 @@ def main():
             st.rerun()
     
     with tab3:
-        st.header("Gecategoriseerde Afbeeldingen")
-        show_categorized_files()
+        st.header("Getypeerde Afbeeldingen")
+        show_typed_files()
+    
+    with tab4:
+        show_typing_config()
 
 if __name__ == "__main__":
     main() 
