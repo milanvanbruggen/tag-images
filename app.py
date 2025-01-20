@@ -49,6 +49,88 @@ CUTOUT_COUNTS = [
     {"label": "3 cutouts", "value": 3}
 ]
 
+# Add custom CSS at the top of the app
+st.markdown("""
+<style>
+    /* Navigation buttons */
+    div[data-testid="column"] button:contains("Previous"), 
+    div[data-testid="column"] button:contains("Next") {
+        width: 100%;
+        background-color: white;
+        border: 1px solid #ddd;
+        padding: 0.5rem;
+        border-radius: 0.3rem;
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    div[data-testid="column"] button:contains("Previous")::before {
+        content: "←";
+        margin-right: 0.5rem;
+    }
+    
+    div[data-testid="column"] button:contains("Next")::after {
+        content: "→";
+        margin-left: 0.5rem;
+    }
+    
+    /* Hide default Streamlit buttons */
+    div[data-testid="stVerticalBlock"] > div.element-container:has(.typing-button-container) + div.element-container {
+        display: none !important;
+        position: absolute !important;
+        pointer-events: none !important;
+        opacity: 0 !important;
+        height: 0 !important;
+        width: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+    }
+    
+    /* Position typing buttons */
+    .typing-button-container {
+        width: 100%;
+    }
+    
+    /* Option buttons */
+    .option-button {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 0.3rem;
+        padding: 0.5rem;
+        width: 100%;
+        font-size: 0.9em;
+        line-height: 1.5;
+        color: #333;
+        transition: all 0.2s;
+        cursor: pointer;
+        text-align: left;
+    }
+    
+    .option-button:hover {
+        background-color: #e9ecef;
+        border-color: #ced4da;
+    }
+    
+    /* Number badges */
+    span.number-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background-color: white;
+        color: #666;
+        border: 1px solid #dee2e6;
+        border-radius: 50%;
+        width: 1.5em;
+        height: 1.5em;
+        margin-right: 0.5rem;
+        font-size: 0.8em;
+        flex-shrink: 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 def load_typing_results():
     """Load typing results from JSON file"""
     if os.path.exists(TYPING_RESULTS_FILE):
@@ -99,14 +181,15 @@ def show_typing_interface():
     with col1:
         nav_col1, nav_col2, _ = st.columns([1, 1, 8])
         with nav_col1:
-            if st.button("⬅️", disabled=st.session_state.current_file_index == 0):
+            if st.button("Previous", disabled=st.session_state.current_file_index == 0, key="prev_btn"):
                 st.session_state.current_file_index = max(0, st.session_state.current_file_index - 1)
                 st.session_state.current_results = {}
                 st.session_state.current_step = 'basic_shape'
                 st.rerun()
+        
         with nav_col2:
-            if st.button("➡️", disabled=st.session_state.current_file_index == len(untyped) - 1):
-                st.session_state.current_file_index = min(len(untyped) - 1, st.session_state.current_file_index + 1)
+            if st.button("Next", disabled=st.session_state.current_file_index == len(get_untyped_files()) - 1, key="next_btn"):
+                st.session_state.current_file_index = min(len(get_untyped_files()) - 1, st.session_state.current_file_index + 1)
                 st.session_state.current_results = {}
                 st.session_state.current_step = 'basic_shape'
                 st.rerun()
@@ -125,7 +208,14 @@ def show_typing_interface():
         cols = st.columns(len(BASIC_SHAPES))
         for i, shape in enumerate(BASIC_SHAPES):
             with cols[i]:
-                if st.button(f"[{i+1}] {shape}", use_container_width=True):
+                st.markdown(f'''
+                    <div class="typing-button-container">
+                        <button class="option-button" data-streamlit-key="{shape}">
+                            <span class="number-badge">{i+1}</span>{shape}
+                        </button>
+                    </div>
+                ''', unsafe_allow_html=True)
+                if st.button("", key=shape):
                     st.session_state.current_results['basic_shape'] = shape
                     st.session_state.current_step = 'number_of_cutouts'
                     st.rerun()
@@ -135,7 +225,14 @@ def show_typing_interface():
         cols = st.columns(len(CUTOUT_COUNTS))
         for i, count_opt in enumerate(CUTOUT_COUNTS):
             with cols[i]:
-                if st.button(f"[{i+1}] {count_opt['label']}", use_container_width=True):
+                st.markdown(f'''
+                    <div class="typing-button-container">
+                        <button class="option-button" data-streamlit-key="{count_opt["label"]}">
+                            <span class="number-badge">{i+1}</span>{count_opt["label"]}
+                        </button>
+                    </div>
+                ''', unsafe_allow_html=True)
+                if st.button("", key=count_opt["label"]):
                     st.session_state.current_results['number_of_cutouts'] = count_opt['label']
                     st.session_state.current_results['cutout_count'] = count_opt['value']
                     if count_opt['value'] > 0:
@@ -159,7 +256,14 @@ def show_typing_interface():
         cols = st.columns(len(CUTOUT_SHAPES))
         for i, shape in enumerate(CUTOUT_SHAPES):
             with cols[i]:
-                if st.button(f"[{i+1}] {shape}", use_container_width=True):
+                st.markdown(f'''
+                    <div class="typing-button-container">
+                        <button class="option-button" data-streamlit-key="{shape}">
+                            <span class="number-badge">{i+1}</span>{shape}
+                        </button>
+                    </div>
+                ''', unsafe_allow_html=True)
+                if st.button("", key=shape):
                     st.session_state.current_results[f'cutout_{current_cutout}'] = shape
                     if current_cutout + 1 < cutout_count:
                         st.session_state.current_cutout = current_cutout + 1
@@ -171,7 +275,14 @@ def show_typing_interface():
         st.subheader("Drill Holes")
         col1, col2, *rest = st.columns(10)
         with col1:
-            if st.button("[1] No", use_container_width=True):
+            st.markdown(f'''
+                <div class="typing-button-container">
+                    <button class="option-button" data-streamlit-key="drill_no">
+                        <span class="number-badge">1</span>No
+                    </button>
+                </div>
+            ''', unsafe_allow_html=True)
+            if st.button("", key="drill_no"):
                 st.session_state.current_results['drill_holes'] = "No"
                 save_typing_result(current_file, st.session_state.current_results)
                 st.session_state.current_results = {}
@@ -181,7 +292,14 @@ def show_typing_interface():
                 st.success("Typing saved!")
                 st.rerun()
         with col2:
-            if st.button("[2] Yes", use_container_width=True):
+            st.markdown(f'''
+                <div class="typing-button-container">
+                    <button class="option-button" data-streamlit-key="drill_yes">
+                        <span class="number-badge">2</span>Yes
+                    </button>
+                </div>
+            ''', unsafe_allow_html=True)
+            if st.button("", key="drill_yes"):
                 st.session_state.current_results['drill_holes'] = "Yes"
                 save_typing_result(current_file, st.session_state.current_results)
                 st.session_state.current_results = {}
@@ -194,25 +312,42 @@ def show_typing_interface():
     # Show image
     st.image(filepath)
     
-    # Add keyboard shortcuts using components
+    # Update keyboard shortcuts and click handlers
     components.html(
         """
         <script>
+        function triggerStreamlitButton(key) {
+            // Find the hidden Streamlit button by searching for its key in the data-testid attribute
+            const buttons = Array.from(window.parent.document.querySelectorAll('button[data-testid^="baseButton-"]'));
+            const hiddenButton = buttons.find(btn => {
+                const container = btn.closest('div[data-testid="element-container"]');
+                return container && container.previousElementSibling && 
+                       container.previousElementSibling.querySelector(`[data-streamlit-key="${key}"]`);
+            });
+            
+            if (hiddenButton) {
+                hiddenButton.click();
+            }
+        }
+
         function handleKeyPress(event) {
             // Handle number keys for options (1-9)
             if (event.key >= '1' && event.key <= '9') {
-                const allButtons = Array.from(window.parent.document.querySelectorAll('button'));
-                const optionButtons = allButtons.filter(btn => btn.textContent.includes('[' + event.key + ']'));
-                if (optionButtons.length > 0) {
-                    optionButtons[0].click();
+                const index = parseInt(event.key) - 1;
+                const buttons = Array.from(window.parent.document.querySelectorAll('.typing-button-container .option-button'));
+                if (buttons[index]) {
+                    const key = buttons[index].getAttribute('data-streamlit-key');
+                    if (key) {
+                        triggerStreamlitButton(key);
+                    }
                 }
             }
             // Handle arrow keys for navigation
             else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-                const allButtons = Array.from(window.parent.document.querySelectorAll('button'));
-                const navButton = allButtons.find(btn => 
-                    (event.key === 'ArrowLeft' && btn.textContent === '⬅️') ||
-                    (event.key === 'ArrowRight' && btn.textContent === '➡️')
+                const navButtons = Array.from(window.parent.document.querySelectorAll('button'));
+                const navButton = navButtons.find(btn => 
+                    (event.key === 'ArrowLeft' && btn.textContent.includes('Previous')) ||
+                    (event.key === 'ArrowRight' && btn.textContent.includes('Next'))
                 );
                 
                 if (navButton && !navButton.disabled) {
@@ -221,10 +356,21 @@ def show_typing_interface():
             }
         }
         
-        // Remove any existing event listener
+        // Remove any existing event listeners
         window.parent.document.removeEventListener('keydown', handleKeyPress);
-        // Add the event listener
+        
+        // Add the event listener for keyboard shortcuts
         window.parent.document.addEventListener('keydown', handleKeyPress);
+
+        // Add click handlers for option buttons
+        window.parent.document.querySelectorAll('.typing-button-container .option-button').forEach(button => {
+            button.addEventListener('click', (e) => {
+                const key = button.getAttribute('data-streamlit-key');
+                if (key) {
+                    triggerStreamlitButton(key);
+                }
+            });
+        });
         </script>
         """,
         height=0,
