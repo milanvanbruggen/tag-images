@@ -5,6 +5,14 @@ from pathlib import Path
 import streamlit.components.v1 as components
 import datetime
 
+# Initialize session state
+if 'current_file_index' not in st.session_state:
+    st.session_state.current_file_index = 0
+if 'current_results' not in st.session_state:
+    st.session_state.current_results = {}
+if 'current_step' not in st.session_state:
+    st.session_state.current_step = 'basic_shape'
+
 # Set page config
 st.set_page_config(
     page_title="SVG Typing",
@@ -27,7 +35,8 @@ BASIC_SHAPES = [
     "Right Angled Triangle",
     "Ellipse",
     "Text",
-    "Other Shape"
+    "Other Shape",
+    "Skip Image"  # Moved to end of list
 ]
 
 CUTOUT_SHAPES = [
@@ -117,9 +126,9 @@ st.markdown("""
         background-color: #f8f9fa;
         border: 1px solid #dee2e6;
         border-radius: 0.5rem;
-        padding: 0.75rem;
+        padding: 0.5rem;
         width: 100%;
-        font-size: 1.1em;
+        font-size: 1em;
         line-height: 1.5;
         color: #333;
         transition: all 0.2s;
@@ -127,6 +136,28 @@ st.markdown("""
         text-align: left;
         display: flex;
         align-items: center;
+    }
+    
+    /* Special style for Skip Image button */
+    .option-button[data-streamlit-key="Skip Image"] {
+        background-color: #ffe6e6;
+        border-color: #ffcccc;
+    }
+    
+    .option-button[data-streamlit-key="Skip Image"] .number-badge {
+        background-color: #fff0f0;
+        border-color: #ffcccc;
+        color: #cc0000;
+    }
+    
+    .option-button[data-streamlit-key="Skip Image"]:hover {
+        background-color: #ffd9d9;
+        border-color: #ffb3b3;
+    }
+    
+    .option-button[data-streamlit-key="Skip Image"]:hover .number-badge {
+        background-color: #ffe6e6;
+        border-color: #ffb3b3;
     }
     
     .option-button:hover {
@@ -213,14 +244,12 @@ def show_typing_interface():
         st.write(f"Place SVG files in the '{DEFAULT_IMAGES_DIR}' folder to type them")
         return
 
-    # Initialize session state
-    if 'current_file_index' not in st.session_state:
+    # Ensure current_file_index is within bounds
+    if st.session_state.current_file_index >= len(files):
+        st.session_state.current_file_index = len(files) - 1
+    elif st.session_state.current_file_index < 0:
         st.session_state.current_file_index = 0
-    if 'current_results' not in st.session_state:
-        st.session_state.current_results = {}
-    if 'current_step' not in st.session_state:
-        st.session_state.current_step = 'basic_shape'
-    
+
     # Navigation
     col1, col2 = st.columns([8, 2])
     with col1:
@@ -240,7 +269,7 @@ def show_typing_interface():
                 st.session_state.current_results = {}
                 st.session_state.current_step = 'basic_shape'
                 st.rerun()
-    
+        
     with col2:
         if not is_editing:
             st.write(f"Image {st.session_state.current_file_index + 1} of {len(files)}")
@@ -292,14 +321,32 @@ def show_typing_interface():
                 st.markdown(f'''
                     <div class="typing-button-container">
                         <button class="option-button" data-streamlit-key="{shape}">
-                            <span class="number-badge">{(i+1)%10}</span>{shape}
+                            <span class="number-badge">{'-' if shape == 'Skip Image' else (i+1 if i < 9 else 0)}</span>{shape}
                         </button>
                     </div>
                 ''', unsafe_allow_html=True)
                 if st.button("", key=shape):
-                    st.session_state.current_results['basic_shape'] = shape
-                    st.session_state.current_step = 'number_of_cutouts'
-                    st.rerun()
+                    if shape == "Skip Image":
+                        # Save skipped image result
+                        skip_results = {
+                            'basic_shape': 'Skip Image',
+                            'number_of_cutouts': 'No cutouts',
+                            'cutout_count': 0,
+                            'drill_holes': 'No',
+                            'typed_date': datetime.datetime.now().isoformat()
+                        }
+                        # Save the result
+                        save_typing_result(current_file, skip_results)
+                        
+                        # Reset the current results and step
+                        st.session_state.current_results = {}
+                        st.session_state.current_step = 'basic_shape'
+                        st.success("Image skipped")
+                        st.rerun()
+                    else:
+                        st.session_state.current_results['basic_shape'] = shape
+                        st.session_state.current_step = 'number_of_cutouts'
+                        st.rerun()
         
         elif st.session_state.current_step == 'number_of_cutouts':
             st.subheader("Number of Cutouts")
@@ -388,10 +435,9 @@ def show_typing_interface():
     
     # Update keyboard shortcuts and click handlers
     components.html(
-        """
+        '''
         <script>
         function triggerStreamlitButton(key) {
-            // Find the hidden Streamlit button by searching for its key in the data-testid attribute
             const buttons = Array.from(window.parent.document.querySelectorAll('button[data-testid^="baseButton-"]'));
             const hiddenButton = buttons.find(btn => {
                 const container = btn.closest('div[data-testid="element-container"]');
@@ -405,27 +451,27 @@ def show_typing_interface():
         }
 
         function handleKeyPress(event) {
-            // Handle number keys for options (1-9)
-            if (event.key >= '1' && event.key <= '9') {
-                const index = parseInt(event.key) - 1;
-                const buttons = Array.from(window.parent.document.querySelectorAll('.typing-button-container .option-button'));
+            const buttons = Array.from(window.parent.document.querySelectorAll('.typing-button-container .option-button'));
+            
+            if (event.key === '-') {
+                // Find the Skip Image button (last button)
+                const skipButton = buttons[buttons.length - 1];
+                if (skipButton) {
+                    const key = skipButton.getAttribute('data-streamlit-key');
+                    if (key) {
+                        triggerStreamlitButton(key);
+                    }
+                }
+            } else if (event.key >= '0' && event.key <= '9') {
+                // For '0', use the last button (10th option)
+                const index = event.key === '0' ? 9 : parseInt(event.key) - 1;
                 if (buttons[index]) {
-                    // Remove clicked state from all buttons
-                    buttons.forEach(btn => {
-                        btn.removeAttribute('data-clicked');
-                    });
-                    
-                    // Add clicked state to the selected button
-                    buttons[index].setAttribute('data-clicked', 'true');
-                    
                     const key = buttons[index].getAttribute('data-streamlit-key');
                     if (key) {
                         triggerStreamlitButton(key);
                     }
                 }
-            }
-            // Handle arrow keys for navigation
-            else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
                 const navButtons = Array.from(window.parent.document.querySelectorAll('button'));
                 const navButton = navButtons.find(btn => 
                     (event.key === 'ArrowLeft' && btn.textContent.includes('Previous')) ||
@@ -437,23 +483,14 @@ def show_typing_interface():
                 }
             }
         }
-        
-        // Remove any existing event listeners
+
         window.parent.document.removeEventListener('keydown', handleKeyPress);
-        
-        // Add the event listener for keyboard shortcuts
         window.parent.document.addEventListener('keydown', handleKeyPress);
 
-        // Add click handlers for option buttons
         window.parent.document.querySelectorAll('.typing-button-container .option-button').forEach(button => {
             button.addEventListener('click', (e) => {
-                // Remove clicked state from all buttons
-                window.parent.document.querySelectorAll('.typing-button-container .option-button').forEach(btn => {
-                    btn.removeAttribute('data-clicked');
-                });
-                
-                // Add clicked state to the clicked button
-                button.setAttribute('data-clicked', 'true');
+                e.preventDefault();
+                e.stopPropagation();
                 
                 const key = button.getAttribute('data-streamlit-key');
                 if (key) {
@@ -462,7 +499,7 @@ def show_typing_interface():
             });
         });
         </script>
-        """,
+        ''',
         height=0,
     )
 
